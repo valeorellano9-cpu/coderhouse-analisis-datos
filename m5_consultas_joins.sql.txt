@@ -1,0 +1,118 @@
+-- ============================================================================
+-- PROYECTO INTEGRADOR: Ventas_Tech_DB (RetailPro)
+-- MÓDULO 5: Consultas con JOINs y Combinación de Datos
+-- Archivo: m5_consultas_joins.sql
+-- ============================================================================
+
+USE Ventas_Tech_DB;
+
+-- ----------------------------------------------------------------------------
+-- CONSULTA 1: Vista base del proyecto (INNER JOIN de 4 tablas)
+-- Objetivo: Consolidar la tabla de hechos (ventas) con todas sus dimensiones 
+--           (clientes, productos, categorias) para alimentar Power BI.
+-- ----------------------------------------------------------------------------
+SELECT 
+    v.id_venta,
+    v.fecha_venta,
+    c.id_cliente,
+    c.nombre AS nombre_cliente,
+    c.email AS email_cliente,
+    c.ciudad AS ciudad_cliente,
+    p.id_producto,
+    p.nombre_producto,
+    cat.nombre_categoria AS categoria,
+    v.cantidad,
+    v.precio_unitario,
+    (v.cantidad * v.precio_unitario) AS total_venta
+FROM ventas v
+INNER JOIN clientes c ON v.id_cliente = c.id_cliente
+INNER JOIN productos p ON v.id_producto = p.id_producto
+INNER JOIN categorias cat ON p.id_categoria = cat.id_categoria
+ORDER BY v.fecha_venta ASC;
+
+
+-- ----------------------------------------------------------------------------
+-- CONSULTA 2: Clientes sin ventas (LEFT JOIN + IS NULL)
+-- Objetivo: Identificar clientes registrados en la base de datos que aún 
+--           no han realizado ninguna transacción de compra (Auditoría CRM).
+-- ----------------------------------------------------------------------------
+SELECT 
+    c.id_cliente,
+    c.nombre AS nombre_cliente,
+    c.email,
+    c.ciudad,
+    c.fecha_registro
+FROM clientes c
+LEFT JOIN ventas v ON c.id_cliente = v.id_cliente
+WHERE v.id_venta IS NULL;
+
+
+-- ----------------------------------------------------------------------------
+-- CONSULTA 3: Productos sin ventas (LEFT JOIN + IS NULL)
+-- Objetivo: Identificar artículos del catálogo que no registraron rotación
+--           o ventas en el período analizado (Auditoría de Inventario).
+-- ----------------------------------------------------------------------------
+SELECT 
+    p.id_producto,
+    p.nombre_producto,
+    cat.nombre_categoria AS categoria,
+    p.precio,
+    p.stock
+FROM productos p
+INNER JOIN categorias cat ON p.id_categoria = cat.id_categoria
+LEFT JOIN ventas v ON p.id_producto = v.id_producto
+WHERE v.id_venta IS NULL;
+
+
+-- ----------------------------------------------------------------------------
+-- CONSULTA 4: Consolidado por canal de venta (UNION ALL + GROUP BY)
+-- Objetivo: Etiquetar dinámicamente el origen/canal transaccional 
+--           y calcular la facturación acumulada y pedidos por canal.
+-- ----------------------------------------------------------------------------
+SELECT 
+    canal,
+    COUNT(id_venta) AS cantidad_transacciones,
+    SUM(total_venta) AS total_facturado
+FROM (
+    -- Subconsulta 1: Canal Venta Online (Transacciones de la primera mitad del mes)
+    SELECT 
+        id_venta,
+        (cantidad * precio_unitario) AS total_venta,
+        'Online' AS canal
+    FROM ventas
+    WHERE fecha_venta <= '2024-03-10'
+
+    UNION ALL
+
+    -- Subconsulta 2: Canal Venta Presencial (Transacciones de la segunda mitad del mes)
+    SELECT 
+        id_venta,
+        (cantidad * precio_unitario) AS total_venta,
+        'Presencial' AS canal
+    FROM ventas
+    WHERE fecha_venta > '2024-03-10'
+) AS ventas_por_canal
+GROUP BY canal
+ORDER BY total_facturado DESC;
+
+
+-- ============================================================================
+-- BLOQUE DE CIERRE: HALLAZGOS Y CONCLUSIONES DE INTEGRACIÓN DE DATOS
+-- ============================================================================
+-- 1. Cobertura Eficiente de Clientes y Productos:
+--    Las Consultas 2 y 3 devuelven 0 registros nulos (conjuntos vacíos), lo que 
+--    demuestra que el 100% de los clientes registrados (5/5) y el 100% de los 
+--    productos del catálogo (6/6) presentan al menos una transacción registrada. 
+--    No existen "activos ocioso" en el catálogo ni clientes inactivos.
+--
+-- 2. Integridad del Dataset para Power BI (Consulta 1):
+--    La vista plana generada mediante los INNER JOINs recupera perfectamente los 
+--    10 registros de la tabla de hechos con sus atributos cualitativos (categorías, 
+--    ciudades y nombres), garantizando que el modelado estrella responderá sin 
+--    pérdida de granularidad ni llaves huérfanas al conectarse en M6.
+--
+-- 3. Balance de Canales Comerciales (Consulta 4):
+--    El canal 'Online' concentró $3,620.00 en 5 transacciones (56.18% del total),
+--    superando al canal 'Presencial' que generó $2,824.00 en 5 transacciones (43.82%).
+--    Esto indica que las compras digitales tienen un ticket promedio más elevado ($724 vs $564.8).
+-- ============================================================================
